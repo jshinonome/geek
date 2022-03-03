@@ -225,6 +225,7 @@ func (pool *QConnPool) Sync(k interface{}, args interface{}) error {
 			pool.c <- port
 			return err
 		}
+		pool.c <- port
 		return nil
 	}
 	return &GeekErr{"Maximum retry times reached"}
@@ -315,6 +316,10 @@ type QEngine struct {
 }
 
 func (q *QEngine) Run() error {
+	if q.Pool == nil {
+		log.Printf("QEngine:Run Failed to start, nil Pool")
+		return &GeekErr{"QEngine:Run nil Pool"}
+	}
 	socket := fmt.Sprintf(":%d", q.Port)
 	listener, err := net.Listen("tcp", socket)
 	if err != nil {
