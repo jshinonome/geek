@@ -19,6 +19,7 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"os/user"
 	"strconv"
 	"syscall"
 	"testing"
@@ -149,6 +150,13 @@ func TestServer(t *testing.T) {
 			return
 		}
 		if diff := cmp.Diff("7203.T", k); diff != "" {
+			t.Error(diff)
+		}
+		var geekUser string
+		qProcess.Sync(&geekUser, GeekUser)
+		osUser, _ := user.Current()
+		if diff := cmp.Diff(geekUser, osUser.Username); diff != "" {
+			t.Error("User is not matached")
 			t.Error(diff)
 		}
 		done <- true

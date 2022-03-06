@@ -41,7 +41,7 @@ var readWriteCases = []struct {
 	{[]byte("ab"), "chars: 'ab'", []byte{10, 0, 2, 0, 0, 0, 97, 98}},
 	{[]string{"test", "symbol"}, "symbols: `test`symbol", []byte{11, 0, 2, 0, 0, 0, 116, 101, 115, 116, 0, 115, 121, 109, 98, 111, 108, 0}},
 	{[]int64{1, 2}, "longs: 1 2", []byte{7, 0, 2, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0}},
-	{[]float64{1.0, 2.0}, "floats: 1.0", []byte{9, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 240, 63, 0, 0, 0, 0, 0, 0, 0, 64}},
+	{[]float64{1.0, 2.0}, "floats: 1.0 2.0", []byte{9, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 240, 63, 0, 0, 0, 0, 0, 0, 0, 64}},
 	{[]time.Time{time.Date(2022, 1, 23, 0, 0, 0, 0, time.UTC),
 		time.Date(2022, 1, 24, 0, 0, 0, 0, time.UTC)},
 		"timestamps: 2022.01.23D 2022.01.24D",
@@ -187,7 +187,7 @@ func TestReadIPC(t *testing.T) {
 	if diff := cmp.Diff(expectD3, actualD3); diff != "" {
 		t.Error(diff)
 	}
-	//
+	// mixed list
 	ipcMsg = []byte("(1;1b)")
 	fmt.Printf("Test read - %s\n", ipcMsg)
 	actualL0 := struct {
@@ -211,6 +211,15 @@ func TestReadIPC(t *testing.T) {
 		{A: 1, B: true},
 	}
 	if diff := cmp.Diff(expectT1, actualT1); diff != "" {
+		t.Error(diff)
+	}
+	// empty table
+	ipcMsg = []byte("0#enlist `a`b!(1;1b)")
+	fmt.Printf("Test read - %s\n", ipcMsg)
+	actualT2 := make([]jb, 0)
+	q.Sync(&actualT2, ipcMsg)
+	expectT2 := []jb{}
+	if diff := cmp.Diff(expectT2, actualT2); diff != "" {
 		t.Error(diff)
 	}
 }
