@@ -45,7 +45,7 @@ type LoggerConfig struct {
 }
 
 var defaultLogFormatter = func(param LogParams) string {
-	return fmt.Sprintf("[GEEK] %v | %9v | %9v | %15s | %15s | (i)%.2fKB | (o)%.2fMB \n%s",
+	return fmt.Sprintf("[GEEK] %v | %9v | %9v | %15s | %20s | i %.2fKB | o %.2fMB \n%s",
 		param.TimeStamp.Format("2006.01.02D15:04:05"),
 		param.Status,
 		param.Duration,
@@ -68,7 +68,7 @@ func LoggerWithConfig(conf LoggerConfig) HandlerFunc {
 	if out == nil {
 		out = DefaultLogWriter
 	}
-	return func(p *QConnPool, q *QProcess) {
+	return func(p *ConnPool, q *QProcess) {
 		start := time.Now()
 		clientIP := q.conn.RemoteAddr().String()
 		api, _ := q.PeekAPI()

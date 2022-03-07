@@ -117,12 +117,14 @@ func TestServer(t *testing.T) {
 		t.Errorf("Failed to connect q process %v", err)
 		return
 	}
-	pool := QConnPool{
+	pool := ConnPool{
 		RetryTimes:     2,
-		ReviveInterval: 2 * time.Second}
+		ReviveInterval: 2 * time.Second,
+		Timeout:        time.Minute,
+	}
 	pool.Put(&qProcess)
 	pool.Serving()
-	qEngine := QEngine{
+	qEngine := Engine{
 		Port: qEnginePort,
 		Auth: func(u, p string) error { return nil },
 		Pool: &pool,

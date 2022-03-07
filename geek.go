@@ -31,8 +31,6 @@ import (
 	"time"
 )
 
-type HandlerFunc func(*QConnPool, *QProcess)
-
 var DefaultLogWriter io.Writer = os.Stdout
 
 type QProcess struct {
@@ -55,6 +53,7 @@ var (
 // var names used on the q processes
 const (
 	GeekUser string = ".geek.user"
+	GeekIP   string = ".geek.ip"
 )
 
 type GeekErr struct {
@@ -175,7 +174,7 @@ func (q *QProcess) Dial() error {
 	return nil
 }
 
-type QConnPool struct {
+type ConnPool struct {
 	c              chan int
 	mu             sync.Mutex
 	Conns          map[int]*QProcess
@@ -186,7 +185,15 @@ type QConnPool struct {
 	queueCounter   int
 }
 
-func (pool *QConnPool) Put(q *QProcess) {
+func NewConnPool() *ConnPool {
+	return &ConnPool{
+		Timeout:        time.Minute,
+		RetryTimes:     3,
+		ReviveInterval: 15 * time.Second,
+	}
+}
+
+func (pool *ConnPool) Put(q *QProcess) {
 	if pool.Conns == nil {
 		pool.Conns = make(map[int]*QProcess)
 		pool.DeadConns = make(map[int]bool)
@@ -195,40 +202,25 @@ func (pool *QConnPool) Put(q *QProcess) {
 	pool.DeadConns[q.Port] = false
 }
 
-func (pool *QConnPool) increase() {
+func (pool *ConnPool) increase() {
 	pool.mu.Lock()
 	pool.queueCounter++
 	pool.mu.Unlock()
 }
 
-func (pool *QConnPool) decrease() {
+func (pool *ConnPool) decrease() {
 	pool.mu.Lock()
 	pool.queueCounter--
 	pool.mu.Unlock()
 }
 
-func (pool *QConnPool) GetQueueCounter() int {
+func (pool *ConnPool) GetQueueCounter() int {
 	return pool.queueCounter
 }
 
-func (pool *QConnPool) Serving() error {
+func (pool *ConnPool) Serving() error {
 	if pool.Conns == nil {
 		return &GeekErr{"geek:Serving Empty connection pool"}
-	}
-	if pool.Timeout <= 0 {
-		log.Println("Timeout <= 0, set it to 60s")
-		pool.Timeout = time.Minute
-	}
-	if pool.RetryTimes <= 0 {
-		log.Println("Retry Times >= 0, set it to 3")
-		if len(pool.Conns) >= 3 {
-			pool.RetryTimes = 3
-		} else {
-			pool.RetryTimes = len(pool.Conns)
-		}
-	}
-	if pool.ReviveInterval <= 0 {
-		pool.ReviveInterval = 15 * time.Second
 	}
 	pool.c = make(chan int, len(pool.Conns))
 	for k := range pool.Conns {
@@ -238,9 +230,10 @@ func (pool *QConnPool) Serving() error {
 	return nil
 }
 
-func (pool *QConnPool) Sync(k interface{}, args interface{}) error {
+func (pool *ConnPool) Sync(k interface{}, args interface{}) error {
 	pool.increase()
 	defer pool.decrease()
+
 	for i := 0; i < pool.RetryTimes; i++ {
 		port := <-pool.c
 		q := pool.Conns[port]
@@ -260,16 +253,16 @@ func (pool *QConnPool) Sync(k interface{}, args interface{}) error {
 	return &GeekErr{"Maximum retry times reached"}
 }
 
-func (pool *QConnPool) Revive() {
+func (pool *ConnPool) Revive() {
 	for {
 		for k, v := range pool.DeadConns {
 			if v {
-				log.Printf("Try to revive %d", k)
+				log.Printf("[GEEK] Try to revive %d", k)
 				q := pool.Conns[k]
 				q.Close()
 				err := q.Dial()
 				if err != nil {
-					log.Printf("Failed to revive %d with error:%s", k, err)
+					log.Printf("[GEEK] Failed to revive %d with error:%s", k, err)
 					continue
 				}
 				pool.DeadConns[k] = false
@@ -280,7 +273,7 @@ func (pool *QConnPool) Revive() {
 	}
 }
 
-func (pool *QConnPool) Handle(qClient *QProcess) (int64, int64, error) {
+func (pool *ConnPool) Handle(qClient *QProcess) (int64, int64, error) {
 	pool.increase()
 	defer pool.decrease()
 
@@ -291,6 +284,12 @@ func (pool *QConnPool) Handle(qClient *QProcess) (int64, int64, error) {
 		qClient.Close()
 		return 0, 0, err
 	}
+	input := make([]byte, inputSize)
+	// cached input for retrying
+	qClient.reader.Read(input)
+	// unset deadline
+	qClient.conn.SetDeadline(time.Time{})
+	defer qClient.Close()
 
 	for i := 0; i < pool.RetryTimes; i++ {
 		port := <-pool.c
@@ -302,76 +301,96 @@ func (pool *QConnPool) Handle(qClient *QProcess) (int64, int64, error) {
 			User string
 		}{".q.set", GeekUser, qClient.User}
 
-		q.Async(setUser)
-		_, err = io.CopyN(q.writer, qClient.reader, inputSize)
+		setIP := struct {
+			F   string
+			Var string
+			IP  string
+		}{".q.set", GeekIP, qClient.conn.RemoteAddr().String()}
+
+		err := q.Async(setUser)
 		if err != nil {
-			log.Println(err)
-			// read errors
-			if errors.Is(err, syscall.ECONNRESET) || errors.Is(err, io.EOF) {
-				qClient.Close()
+			if errors.Is(err, os.ErrDeadlineExceeded) {
 				pool.c <- port
-				return inputSize, 0, err
-			} else {
-				pool.DeadConns[port] = true
-				continue
 			}
+			continue
 		}
+		// unlikely to generate error
+		q.Async(setIP)
+
+		_, err = q.writer.Write(input)
+		if err != nil {
+			pool.DeadConns[port] = true
+			continue
+		}
+		q.writer.Flush()
 		// set timeout
 		q.conn.SetDeadline(deadline)
+		// unset timeout
+		defer q.conn.SetDeadline(time.Time{})
 		outputSize, err := q.peekMsgLength()
 		if err != nil {
 			if !q.IsConnected() {
 				pool.DeadConns[port] = true
 				continue
-			} else {
-				pool.c <- port
-				continue
 			}
+			if errors.Is(err, os.ErrDeadlineExceeded) {
+				qClient.Err(err)
+			}
+			pool.c <- port
+			return inputSize, 0, err
 		}
 		_, err = io.CopyN(qClient.writer, q.reader, outputSize)
 		if err != nil {
-			log.Println(err)
 			// read error
 			if errors.Is(err, syscall.ECONNRESET) || errors.Is(err, io.EOF) {
 				pool.DeadConns[port] = true
 				continue
 			} else {
-				qClient.Close()
 				pool.c <- port
 				return inputSize, outputSize, err
 			}
 		}
-		qClient.Close()
-		// unset timeout
-		q.conn.SetDeadline(time.Time{})
 		pool.c <- q.Port
 		return inputSize, outputSize, nil
 	}
 
 	errMsg := &GeekErr{"Maximum retry times reached"}
 	qClient.Err(errMsg)
-	qClient.Close()
 	return inputSize, 0, errMsg
 }
 
-type QEngine struct {
+type Authenticator func(string, string) error
+type HandlerFunc func(*ConnPool, *QProcess)
+
+type Engine struct {
 	Port    int
-	Auth    func(string, string) error
-	Pool    *QConnPool
+	Auth    Authenticator
+	Pool    *ConnPool
 	Handler HandlerFunc
 }
 
-func (q *QEngine) Run() error {
-	if q.Pool == nil {
-		log.Printf("QEngine:Run Failed to start, nil Pool")
+func DefaultEngine(pool *ConnPool) *Engine {
+	noAuth := func(user string, password string) error {
+		return nil
+	}
+	return &Engine{
+		Port:    8101,
+		Auth:    noAuth,
+		Pool:    pool,
+		Handler: LoggerWithConfig(LoggerConfig{}),
+	}
+}
+
+func (e *Engine) Run() error {
+	if e.Pool == nil {
 		return &GeekErr{"QEngine:Run nil Pool"}
 	}
 
-	if q.Handler == nil {
-		q.Handler = LoggerWithConfig(LoggerConfig{})
+	if e.Handler == nil {
+		e.Handler = LoggerWithConfig(LoggerConfig{})
 	}
 
-	socket := fmt.Sprintf(":%d", q.Port)
+	socket := fmt.Sprintf(":%d", e.Port)
 	listener, err := net.Listen("tcp", socket)
 	if err != nil {
 		return err
@@ -379,8 +398,7 @@ func (q *QEngine) Run() error {
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
-			log.Printf("QEngine:Run Failed to accept connection %s", err)
-			continue
+			return &GeekErr{fmt.Sprintf("QEngine:Run Failed to accept connection %s", err)}
 		}
 		reader := bufio.NewReader(conn)
 		writer := bufio.NewWriter(conn)
@@ -399,14 +417,13 @@ func (q *QEngine) Run() error {
 			user = string(credentials[:colonPos-1])
 			password = string(credentials[colonPos+1 : len(credentials)-2])
 		}
-		err = q.Auth(user, password)
+		err = e.Auth(user, password)
 		if err != nil {
-			log.Printf("QEngine:Run Authentication failed %s", err)
 			conn.Close()
 		} else {
 			conn.Write([]byte{0x03})
 			qClient := &QProcess{conn: conn, reader: reader, writer: writer, User: user}
-			q.Handler(q.Pool, qClient)
+			e.Handler(e.Pool, qClient)
 		}
 	}
 }
