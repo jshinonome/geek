@@ -45,7 +45,8 @@ type LoggerConfig struct {
 }
 
 var defaultLogFormatter = func(param LogParams) string {
-	return fmt.Sprintf("[GEEK] %v | %9v | %9v | %15s | %20s | i %.2fKB | o %.2fMB \n%s",
+	return fmt.Sprintf(
+		"[GEEK] %v | %9v | %9v | %15s | %20s | i/o %.2fKB %.2fMB | %20s \n%s",
 		param.TimeStamp.Format("2006.01.02D15:04:05"),
 		param.Status,
 		param.Duration,
@@ -53,6 +54,7 @@ var defaultLogFormatter = func(param LogParams) string {
 		param.ClientIP,
 		float32(param.InputSize)/1024,
 		float32(param.OutputSize)/1048576,
+		param.API,
 		param.ErrorMsg,
 	)
 }

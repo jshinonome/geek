@@ -430,27 +430,30 @@ func (e *Engine) Run() error {
 
 // first arg from a kdb client must be api name
 func (q *QProcess) PeekAPI() (string, error) {
-	_, err := q.reader.Peek(1)
+	peekSize := 1024
+	msgLength, err := q.peekMsgLength()
 	if err != nil {
 		if errors.Is(err, syscall.ECONNRESET) || errors.Is(err, io.EOF) {
 			q.Close()
 		}
 		return "", err
 	}
-	peekSize := 1024
-	if peekSize > q.reader.Buffered() {
-		peekSize = q.reader.Buffered()
+	if peekSize > int(msgLength) {
+		peekSize = int(msgLength)
 	}
 	api, _ := q.reader.Peek(peekSize)
 	var startIndex int
-	if api[14] == 245 {
-		// mixed list
-		startIndex = 15
-	} else if api[8] == 11 {
+	if peekSize > 9 && api[8] == 245 {
+		// a symbol
+		startIndex = 9
+	} else if peekSize > 14 && api[8] == 11 {
 		// symbol list
 		startIndex = 14
+	} else if peekSize > 15 && api[14] == 245 {
+		// mixed list
+		startIndex = 15
 	} else {
-		return "", &GeekErr{"geek:PeekAPI first arg is not a symbol"}
+		return "", &GeekErr{"geek:PeekAPI not a symbol"}
 	}
 	var endIndex int
 	for i := startIndex; i < len(api); i++ {
