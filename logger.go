@@ -22,15 +22,16 @@ import (
 )
 
 type LogParams struct {
-	TimeStamp  time.Time
-	Duration   time.Duration
-	Status     string
-	User       string
-	ClientIP   string
-	API        string
-	InputSize  int64
-	OutputSize int64
-	ErrorMsg   string
+	TimeStamp    time.Time
+	Duration     time.Duration
+	Status       string
+	User         string
+	ClientIP     string
+	API          string
+	InputSize    int64
+	OutputSize   int64
+	ErrorMsg     string
+	QueueCounter int
 }
 
 type LogFormatter func(params LogParams) string
@@ -46,7 +47,7 @@ type LoggerConfig struct {
 
 var defaultLogFormatter = func(param LogParams) string {
 	return fmt.Sprintf(
-		"[GEEK] %v | %9v | %9v | %15s | %20s | i/o %.2fKB %.2fMB | %20s \n%s",
+		"[GEEK] %v | %9v | %9v | %15s | %20s | i/o %.2fKB %.2fMB | %5d | %20s \n%s",
 		param.TimeStamp.Format("2006.01.02D15:04:05"),
 		param.Status,
 		param.Duration,
@@ -54,6 +55,7 @@ var defaultLogFormatter = func(param LogParams) string {
 		param.ClientIP,
 		float32(param.InputSize)/1024,
 		float32(param.OutputSize)/1048576,
+		param.QueueCounter,
 		param.API,
 		param.ErrorMsg,
 	)
@@ -73,17 +75,28 @@ func LoggerWithConfig(conf LoggerConfig) HandlerFunc {
 	return func(p *ConnPool, q *QProcess) {
 		start := time.Now()
 		clientIP := q.conn.RemoteAddr().String()
+
 		api, _ := q.PeekAPI()
 
-		inputSize, outputSize, err := p.Handle(q)
+		var inputSize, outputSize int64
+
+		err := p.Validate(api)
+		if err != nil {
+			q.Discard()
+			q.Err(err)
+		} else {
+			inputSize, outputSize, err = p.Handle(q)
+		}
 
 		param := LogParams{
-			User:       q.User,
-			ClientIP:   clientIP,
-			API:        api,
-			InputSize:  inputSize,
-			OutputSize: outputSize,
+			User:         q.User,
+			ClientIP:     clientIP,
+			API:          api,
+			InputSize:    inputSize,
+			OutputSize:   outputSize,
+			QueueCounter: p.GetQueueCounter(),
 		}
+
 		if err != nil {
 			param.Status = "Failed"
 			param.ErrorMsg = err.Error()

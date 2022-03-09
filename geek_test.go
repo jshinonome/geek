@@ -123,7 +123,11 @@ func TestServer(t *testing.T) {
 		Timeout:        time.Minute,
 	}
 	pool.Put(&qProcess)
-	pool.Serving()
+	err = pool.Serving()
+	if err != nil {
+		t.Error(err)
+		return
+	}
 	qEngine := Engine{
 		Port: qEnginePort,
 		Auth: func(u, p string) error { return nil },
@@ -176,8 +180,28 @@ func TestServer(t *testing.T) {
 	if diff := cmp.Diff("9984.T", k); diff != "" {
 		t.Error(diff)
 	}
-	qClient.Close()
+
+	pool.AllowedAPI = make(map[string]bool)
+	err = qClient.Sync(&k, []byte("`::9997 (`.Q.dd;`2229;`T)"))
+	if err.Error() != "`"+ErrNotAllowedAPI.Error() {
+		t.Error(err)
+	}
+	pool.AllowedAPI[".Q.dd"] = true
+	err = qClient.Sync(&k, []byte("`::9997 (`.Q.dd;`2229;`T)"))
+	if err != nil {
+		t.Error(err)
+	}
+	if diff := cmp.Diff("2229.T", k); diff != "" {
+		t.Error(diff)
+	}
+
+	pool.RetryTimes = 1
 	qProcess.Close()
+	err = pool.Sync(&k, []string{".Q.dd", "9984", "T"})
+	if err != ErrMaxRetryTimesReached {
+		t.Error(err)
+	}
+	qClient.Close()
 }
 
 func TestIPC(t *testing.T) {

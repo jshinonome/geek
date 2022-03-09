@@ -23,10 +23,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"net"
 	"os"
-	"sync"
 	"syscall"
 	"time"
 )
@@ -45,9 +43,11 @@ type QProcess struct {
 }
 
 var (
-	ErrAuth         = errors.New("geek: wrong credential?")
-	ErrVersion      = errors.New("geek: require version 3+ kdb+")
-	ErrNotConnected = errors.New("geek: not connected")
+	ErrAuth                 = errors.New("geek: wrong credential?")
+	ErrVersion              = errors.New("geek: require version 3+ kdb+")
+	ErrNotConnected         = errors.New("geek: not connected")
+	ErrMaxRetryTimesReached = errors.New("geek: maximum retry times reached")
+	ErrNotAllowedAPI        = errors.New("geek: not allowed API")
 )
 
 // var names used on the q processes
@@ -98,7 +98,7 @@ func (q *QProcess) Sync(k interface{}, args interface{}) error {
 	}
 }
 
-func (q QProcess) Async(args interface{}) error {
+func (q *QProcess) Async(args interface{}) error {
 	if q.IsConnected() {
 		err := writeIPC(q.writer, ASYNC, args)
 		if err != nil {
@@ -113,7 +113,16 @@ func (q QProcess) Async(args interface{}) error {
 	}
 }
 
-func (q QProcess) Err(err error) error {
+func (q *QProcess) Discard() error {
+	msgLength, err := q.peekMsgLength()
+	if err != nil {
+		return err
+	}
+	_, err = q.reader.Discard(int(msgLength))
+	return err
+}
+
+func (q *QProcess) Err(err error) error {
 	if q.IsConnected() {
 		err := writeErr(q.writer, err)
 		if err != nil {
@@ -172,191 +181,6 @@ func (q *QProcess) Dial() error {
 	q.reader = bufio.NewReader(conn)
 	q.writer = bufio.NewWriter(conn)
 	return nil
-}
-
-type ConnPool struct {
-	c              chan int
-	mu             sync.Mutex
-	Conns          map[int]*QProcess
-	Timeout        time.Duration
-	ReviveInterval time.Duration
-	DeadConns      map[int]bool
-	RetryTimes     int
-	queueCounter   int
-}
-
-func NewConnPool() *ConnPool {
-	return &ConnPool{
-		Timeout:        time.Minute,
-		RetryTimes:     3,
-		ReviveInterval: 15 * time.Second,
-	}
-}
-
-func (pool *ConnPool) Put(q *QProcess) {
-	if pool.Conns == nil {
-		pool.Conns = make(map[int]*QProcess)
-		pool.DeadConns = make(map[int]bool)
-	}
-	pool.Conns[q.Port] = q
-	pool.DeadConns[q.Port] = false
-}
-
-func (pool *ConnPool) increase() {
-	pool.mu.Lock()
-	pool.queueCounter++
-	pool.mu.Unlock()
-}
-
-func (pool *ConnPool) decrease() {
-	pool.mu.Lock()
-	pool.queueCounter--
-	pool.mu.Unlock()
-}
-
-func (pool *ConnPool) GetQueueCounter() int {
-	return pool.queueCounter
-}
-
-func (pool *ConnPool) Serving() error {
-	if pool.Conns == nil {
-		return &GeekErr{"geek:Serving Empty connection pool"}
-	}
-	pool.c = make(chan int, len(pool.Conns))
-	for k := range pool.Conns {
-		pool.c <- k
-	}
-	go pool.Revive()
-	return nil
-}
-
-func (pool *ConnPool) Sync(k interface{}, args interface{}) error {
-	pool.increase()
-	defer pool.decrease()
-
-	for i := 0; i < pool.RetryTimes; i++ {
-		port := <-pool.c
-		q := pool.Conns[port]
-		err := q.Sync(k, args)
-		if err != nil {
-			// retry if q is not connected, retry
-			if !q.IsConnected() {
-				pool.DeadConns[q.Port] = true
-				continue
-			}
-			pool.c <- port
-			return err
-		}
-		pool.c <- port
-		return nil
-	}
-	return &GeekErr{"Maximum retry times reached"}
-}
-
-func (pool *ConnPool) Revive() {
-	for {
-		for k, v := range pool.DeadConns {
-			if v {
-				log.Printf("[GEEK] Try to revive %d", k)
-				q := pool.Conns[k]
-				q.Close()
-				err := q.Dial()
-				if err != nil {
-					log.Printf("[GEEK] Failed to revive %d with error:%s", k, err)
-					continue
-				}
-				pool.DeadConns[k] = false
-				pool.c <- k
-			}
-		}
-		time.Sleep(pool.ReviveInterval)
-	}
-}
-
-func (pool *ConnPool) Handle(qClient *QProcess) (int64, int64, error) {
-	pool.increase()
-	defer pool.decrease()
-
-	deadline := time.Now().Add(pool.Timeout)
-	qClient.conn.SetDeadline(deadline)
-	inputSize, err := qClient.peekMsgLength()
-	if err != nil {
-		qClient.Close()
-		return 0, 0, err
-	}
-	input := make([]byte, inputSize)
-	// cached input for retrying
-	qClient.reader.Read(input)
-	// unset deadline
-	qClient.conn.SetDeadline(time.Time{})
-	defer qClient.Close()
-
-	for i := 0; i < pool.RetryTimes; i++ {
-		port := <-pool.c
-		q := pool.Conns[port]
-
-		setUser := struct {
-			F    string
-			Var  string
-			User string
-		}{".q.set", GeekUser, qClient.User}
-
-		setIP := struct {
-			F   string
-			Var string
-			IP  string
-		}{".q.set", GeekIP, qClient.conn.RemoteAddr().String()}
-
-		err := q.Async(setUser)
-		if err != nil {
-			if errors.Is(err, os.ErrDeadlineExceeded) {
-				pool.c <- port
-			}
-			continue
-		}
-		// unlikely to generate error
-		q.Async(setIP)
-
-		_, err = q.writer.Write(input)
-		if err != nil {
-			pool.DeadConns[port] = true
-			continue
-		}
-		q.writer.Flush()
-		// set timeout
-		q.conn.SetDeadline(deadline)
-		// unset timeout
-		defer q.conn.SetDeadline(time.Time{})
-		outputSize, err := q.peekMsgLength()
-		if err != nil {
-			if !q.IsConnected() {
-				pool.DeadConns[port] = true
-				continue
-			}
-			if errors.Is(err, os.ErrDeadlineExceeded) {
-				qClient.Err(err)
-			}
-			pool.c <- port
-			return inputSize, 0, err
-		}
-		_, err = io.CopyN(qClient.writer, q.reader, outputSize)
-		if err != nil {
-			// read error
-			if errors.Is(err, syscall.ECONNRESET) || errors.Is(err, io.EOF) {
-				pool.DeadConns[port] = true
-				continue
-			} else {
-				pool.c <- port
-				return inputSize, outputSize, err
-			}
-		}
-		pool.c <- q.Port
-		return inputSize, outputSize, nil
-	}
-
-	errMsg := &GeekErr{"Maximum retry times reached"}
-	qClient.Err(errMsg)
-	return inputSize, 0, errMsg
 }
 
 type Authenticator func(string, string) error
