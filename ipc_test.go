@@ -263,3 +263,23 @@ func TestDiscardUnreadBytes(t *testing.T) {
 		}
 	}
 }
+
+var compressTest = []string{
+	"til 1000",
+	"1000#enlist `a`b!1 2",
+}
+
+func TestCompress(t *testing.T) {
+	q := QProcess{Port: qProcessPort, User: "test", Password: "test"}
+	q.Dial()
+	msg := make([]byte, 0)
+	for _, test := range compressTest {
+		q.Sync(&msg, []byte("`char$-8!"+test))
+		actualMsg := Compress(msg)
+		expectMsg := make([]byte, 0)
+		q.Sync(&expectMsg, []byte("`char$-18!"+test))
+		if diff := cmp.Diff(expectMsg, actualMsg); diff != "" {
+			t.Error(diff)
+		}
+	}
+}

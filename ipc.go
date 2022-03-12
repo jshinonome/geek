@@ -698,3 +698,91 @@ func compareKeyWithStructField(keys reflect.Value, pv reflect.Value) error {
 	}
 	return nil
 }
+
+func Compress(msg []byte) []byte {
+	// skip compression if < 4MB
+	if len(msg) < 2000 {
+		return msg
+	}
+	cMaxLen := len(msg) / 2
+	cMsg := make([]byte, cMaxLen)
+	copy(cMsg, msg[:4])
+	// set to compressed
+	cMsg[2] = 1
+	// original msg length
+	copy(cMsg[8:12], msg[4:8])
+	// compressed msg position
+	cPos := 12
+	nPos := cPos
+	// original position & length
+	oPos := 8
+	oLen := len(msg)
+
+	// cached xor value for oPos and oPos + 1
+	X := make([]int, 256)
+	// px, x of previous loop
+	// compression counter, the number of 1 in n binary format
+	var px, n byte
+	var pPos int
+	for i := byte(0); oPos < oLen; i <<= 1 {
+		if i == 0 {
+			if cPos > cMaxLen-17 {
+				return msg
+			}
+			i = 1
+			cMsg[nPos] = n
+			nPos = cPos
+			cPos++
+			n = 0
+		}
+
+		skip := oLen-oPos < 3
+		var xPos int
+		var x byte
+		if !skip {
+			x = msg[oPos] ^ msg[oPos+1]
+			xPos = X[x]
+			// if same x exist and the start bytes equal, not skip,
+			// 2+ bytes are the same(duplicate)
+			skip = xPos == 0 || msg[oPos] != msg[xPos]
+		}
+
+		// update cached X from previous result
+		// update here to enforce 2+ bytes duplicate
+		if pPos > 0 {
+			X[px] = pPos
+			pPos = 0
+		}
+
+		// update new position for x
+		if skip {
+			px = x
+			pPos = oPos
+			// copy 1 byte and continue
+			cMsg[cPos] = msg[oPos]
+			cPos++
+			oPos++
+		} else {
+			X[x] = oPos
+			n |= i
+			xPos += 2
+			oPos += 2
+			// start of duplicate
+			s := oPos
+			max := oPos + 255
+			if oPos+255 > oLen {
+				max = oLen
+			}
+			for ; oPos < max && msg[xPos] == msg[oPos]; oPos++ {
+				xPos++
+			}
+			cMsg[cPos] = x
+			cPos++
+			cMsg[cPos] = byte(oPos - s)
+			cPos++
+		}
+	}
+	cMsg[nPos] = n
+	binary.LittleEndian.PutUint32(cMsg[4:8], uint32(cPos))
+	return cMsg[:cPos:cPos]
+}
