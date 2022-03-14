@@ -48,6 +48,7 @@ var (
 	ErrNotConnected         = errors.New("geek: not connected")
 	ErrMaxRetryTimesReached = errors.New("geek: maximum retry times reached")
 	ErrNotAllowedAPI        = errors.New("geek: not allowed API")
+	ErrInvalidQuery         = errors.New("geek: first item is not a symbol or null symbol")
 )
 
 // var names used on the q processes
@@ -252,46 +253,32 @@ func (e *Engine) Run() error {
 	}
 }
 
-// first arg from a kdb client must be api name
-func (q *QProcess) PeekAPI() (string, error) {
-	peekSize := 1024
-	msgLength, err := q.peekMsgLength()
-	if err != nil {
-		if errors.Is(err, syscall.ECONNRESET) || errors.Is(err, io.EOF) {
-			q.Close()
-		}
-		return "", err
-	}
-	if peekSize > int(msgLength) {
-		peekSize = int(msgLength)
-	}
-	api, _ := q.reader.Peek(peekSize)
+// peek the first symbol(API) in the incoming message
+func PeekAPI(msg []byte) string {
 	var startIndex int
-	if peekSize > 9 && api[8] == 245 {
+	if len(msg) > 9 && msg[8] == 245 {
 		// a symbol
 		startIndex = 9
-	} else if peekSize > 14 && api[8] == 11 {
+	} else if len(msg) > 14 && msg[8] == 11 {
 		// symbol list
 		startIndex = 14
-	} else if peekSize > 15 && api[14] == 245 {
+	} else if len(msg) > 15 && msg[14] == 245 {
 		// mixed list
 		startIndex = 15
 	} else {
-		return "", &GeekErr{"geek:PeekAPI not a symbol"}
+		return ""
 	}
 	var endIndex int
-	for i := startIndex; i < len(api); i++ {
-		if api[i] == 0 {
+	for i := startIndex; i < len(msg); i++ {
+		if msg[i] == 0 {
 			endIndex = i
 			break
 		}
 	}
-	if endIndex == 0 {
-		return "", &GeekErr{"geek:PeekAPI api name >= 1009 chars"}
-	} else if endIndex == startIndex {
-		return "", &GeekErr{"geek:PeekAPI null api name"}
+	if endIndex == startIndex {
+		return ""
 	}
-	return string(api[startIndex:endIndex]), nil
+	return string(msg[startIndex:endIndex])
 }
 
 // int64 is for io.copyN

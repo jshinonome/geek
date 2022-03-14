@@ -138,7 +138,7 @@ func (pool *ConnPool) Validate(API string) error {
 	}
 }
 
-func (pool *ConnPool) Handle(qClient *QProcess) (int64, int64, error) {
+func (pool *ConnPool) Handle(qClient *QProcess) (int64, int64, string, error) {
 	pool.increase()
 	defer pool.decrease()
 
@@ -147,12 +147,24 @@ func (pool *ConnPool) Handle(qClient *QProcess) (int64, int64, error) {
 	inputSize, err := qClient.peekMsgLength()
 	if err != nil {
 		qClient.Close()
-		return 0, 0, err
+		return 0, 0, "", err
 	}
 	// for retrying
 	input := make([]byte, inputSize)
 	// cached input for retrying
 	qClient.reader.Read(input)
+	input = Decompress(input)
+	api := PeekAPI(input)
+	err = pool.Validate(api)
+	if err != nil {
+		if api == "" {
+			qClient.Err(ErrInvalidQuery)
+			return 0, 0, api, ErrInvalidQuery
+		} else {
+			qClient.Err(ErrNotAllowedAPI)
+			return 0, 0, api, ErrNotAllowedAPI
+		}
+	}
 	// unset deadline
 	qClient.conn.SetDeadline(time.Time{})
 	defer qClient.Close()
@@ -203,7 +215,7 @@ func (pool *ConnPool) Handle(qClient *QProcess) (int64, int64, error) {
 				qClient.Err(err)
 			}
 			pool.c <- port
-			return inputSize, 0, err
+			return inputSize, 0, api, err
 		}
 		_, err = io.CopyN(qClient.writer, q.reader, outputSize)
 		if err != nil {
@@ -213,13 +225,13 @@ func (pool *ConnPool) Handle(qClient *QProcess) (int64, int64, error) {
 				continue
 			} else {
 				pool.c <- port
-				return inputSize, outputSize, err
+				return inputSize, outputSize, api, err
 			}
 		}
 		pool.c <- q.Port
-		return inputSize, outputSize, nil
+		return inputSize, outputSize, api, nil
 	}
 
 	qClient.Err(ErrMaxRetryTimesReached)
-	return inputSize, 0, ErrMaxRetryTimesReached
+	return inputSize, 0, api, ErrMaxRetryTimesReached
 }

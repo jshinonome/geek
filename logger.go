@@ -47,7 +47,7 @@ type LoggerConfig struct {
 
 var defaultLogFormatter = func(param LogParams) string {
 	return fmt.Sprintf(
-		"[GEEK] %v | %9v | %9v | %15s | %20s | i/o %.2fKB %.2fMB | %5d | %20s \n%s",
+		"[GEEK] %v | %9v | %9v | %15s | %20s | i/o %.2fKB %.2fMB | %5d | %20s | %s\n",
 		param.TimeStamp.Format("2006.01.02D15:04:05"),
 		param.Status,
 		param.Duration,
@@ -76,17 +76,7 @@ func LoggerWithConfig(conf LoggerConfig) HandlerFunc {
 		start := time.Now()
 		clientIP := q.conn.RemoteAddr().String()
 
-		api, _ := q.PeekAPI()
-
-		var inputSize, outputSize int64
-
-		err := p.Validate(api)
-		if err != nil {
-			q.Discard()
-			q.Err(err)
-		} else {
-			inputSize, outputSize, err = p.Handle(q)
-		}
+		inputSize, outputSize, api, err := p.Handle(q)
 
 		param := LogParams{
 			User:         q.User,
