@@ -786,3 +786,53 @@ func Compress(msg []byte) []byte {
 	binary.LittleEndian.PutUint32(cMsg[4:8], uint32(cPos))
 	return cMsg[:cPos:cPos]
 }
+
+func Decompress(cMsg []byte) []byte {
+	if cMsg[2] == 0 {
+		return cMsg
+	}
+	var oLen = int(binary.LittleEndian.Uint32(cMsg[8:12]))
+	msg := make([]byte, oLen)
+	copy(msg[:4], cMsg[:4])
+	msg[2] = 0
+	copy(msg[4:8], cMsg[8:12])
+	oPos := 8
+	xPos := oPos
+	cPos := 12
+	X := make([]int, 256)
+	var n byte
+	for i := byte(0); oPos < oLen; i <<= 1 {
+		if i == 0 {
+			n = cMsg[cPos]
+			cPos++
+			i = 1
+		}
+		var r int
+		if n&i != 0 {
+			s := X[cMsg[cPos]]
+			cPos++
+			// the count of repeated bytes
+			r = int(cMsg[cPos])
+			cPos++
+			for j := 0; j < r+2; j++ {
+				msg[oPos+j] = msg[s+j]
+			}
+			// to update xPos for last r bytes, so DON'T add r here
+			oPos += 2
+		} else {
+			msg[oPos] = cMsg[cPos]
+			oPos++
+			cPos++
+		}
+		// cache xor value
+		for ; xPos < oPos-1; xPos++ {
+			X[msg[xPos]^msg[xPos+1]] = xPos
+		}
+
+		if n&i != 0 {
+			oPos += r
+			xPos = oPos
+		}
+	}
+	return msg
+}
