@@ -110,12 +110,16 @@ type trade struct {
 }
 ```
 
+2. Start a q process
+
 ```q
 q -p 1800
 trade:([]time:"p"$.z.D-til 10;sym:10?`a`b;price:10?10.0;qty:10?10);
 getTrade:{select from trade where sym=x};
 .z.pg:{[x]0N!(`zpg;x);value x};
 ```
+
+3. Run go program
 
 ```sh
 go run example.go
