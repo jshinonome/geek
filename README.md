@@ -1,6 +1,18 @@
 # Geek
 
-Geek is a kdb+/q interface for Go (Golang). It comes with a kdb+/q load balancer ConnPool, which uses a buffered channel to manage the connections pool. Also, geek.Engine doesn't serialize or deserialize IPC message.
+Geek is a kdb+/q interface for Go (Golang). It comes with a kdb+/q load balancer ConnPool, which uses a buffered channel to handle the connections pool.
+
+-   ConnPool.Handle
+    -   doesn't serialize or deserialize IPC message.
+    -   before passing on IPC messages, define .geek.user and .geek.ip on the q process
+-   ConnPool.Sync
+    -   need a known go type pointer as an parameter
+
+## Contents
+
+-   [Installation](#installation)
+-   [Quick Start](#quick-start)
+-   [Data Types](#data-types)
 
 ## Installation
 
@@ -123,4 +135,57 @@ getTrade:{select from trade where sym=x};
 
 ```sh
 go run example.go
+```
+
+## Data Types
+
+### Basic Types
+
+Intend to support only these 6 types
+
+| kdb       | go        |
+| --------- | --------- |
+| long      | int64     |
+| float     | float64   |
+| char      | byte      |
+| symbol    | string    |
+| timestamp | time.Time |
+| boolean   | bool      |
+
+### Other Types
+
+go struct without k tags -> k mixed list
+
+```go
+struct {
+	Func   string
+	Param1 string
+	Param2 string
+}
+```
+
+go map -> k dictionary
+
+```go
+map[string]bool
+```
+
+go struct with k tags(keys' name) -> k dictionary
+
+```go
+struct {
+	Key1 string    `k:"sym"`
+	Key2 time.Time `k:"time"`
+	Key3 []byte    `k:"qty"`
+}
+```
+
+go list of a struct with k tags(column names) -> k table
+
+```go
+[]struct {
+	Key1 string    `k:"sym"`
+	Key2 time.Time `k:"time"`
+	Key3 []byte    `k:"qty"`
+}
 ```
