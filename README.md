@@ -184,8 +184,8 @@ go list of a struct with k tags(column names) -> k table
 
 ```go
 []struct {
-	Key1 string    `k:"sym"`
-	Key2 time.Time `k:"time"`
-	Key3 []byte    `k:"qty"`
+	Sym  string    `k:"sym"`
+	Time time.Time `k:"time"`
+	Qty  []byte    `k:"qty"`
 }
 ```

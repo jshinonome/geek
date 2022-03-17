@@ -201,6 +201,14 @@ func TestServer(t *testing.T) {
 	if err != ErrMaxRetryTimesReached {
 		t.Error(err)
 	}
+	qProcess.Dial()
+	var h1, h2 int64
+	pool.reservedConns[qProcessPort].Sync(&h1, []byte("{`long$.z.w}()"))
+	pool.Conns[qProcessPort].Sync(&h2, []byte("{`long$.z.w}()"))
+	if h1 == 0 && h2 == 0 && h1 == h2 {
+		t.Error("Should be different handles")
+	}
+	pool.Reload()
 	qClient.Close()
 }
 

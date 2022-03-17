@@ -30,6 +30,7 @@ type ConnPool struct {
 	c              chan int
 	mu             sync.Mutex
 	Conns          map[int]*QProcess
+	reservedConns  map[int]*QProcess
 	Timeout        time.Duration
 	ReviveInterval time.Duration
 	DeadConns      map[int]bool
@@ -50,9 +51,25 @@ func (pool *ConnPool) Put(q *QProcess) {
 	if pool.Conns == nil {
 		pool.Conns = make(map[int]*QProcess)
 		pool.DeadConns = make(map[int]bool)
+		pool.reservedConns = make(map[int]*QProcess)
 	}
 	pool.Conns[q.Port] = q
 	pool.DeadConns[q.Port] = false
+	qCopy := *q
+	qCopy.Dial()
+	pool.reservedConns[q.Port] = &qCopy
+}
+
+func (pool *ConnPool) Reload() {
+	for _, q := range pool.reservedConns {
+		if q.conn == nil {
+			q.Dial()
+		}
+		err := q.Async([]byte("\\l ."))
+		if err != nil {
+			log.Printf("geek:Reload failed to reload %d, %s", q.Port, err)
+		}
+	}
 }
 
 func (pool *ConnPool) increase() {
@@ -84,6 +101,11 @@ func (pool *ConnPool) Serving() error {
 }
 
 func (pool *ConnPool) Sync(k interface{}, args interface{}) error {
+	defer func() {
+		if err := recover(); err != nil {
+			log.Println("geek.Sync failed: ", err)
+		}
+	}()
 	pool.increase()
 	defer pool.decrease()
 
@@ -139,6 +161,11 @@ func (pool *ConnPool) Validate(API string) error {
 }
 
 func (pool *ConnPool) Handle(qClient *QProcess) (int64, int64, string, error) {
+	defer func() {
+		if err := recover(); err != nil {
+			log.Println("geek.Handle failed: ", err)
+		}
+	}()
 	pool.increase()
 	defer pool.decrease()
 
