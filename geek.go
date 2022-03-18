@@ -248,7 +248,7 @@ func (e *Engine) Run() error {
 		} else {
 			conn.Write([]byte{0x03})
 			qClient := &QProcess{conn: conn, reader: reader, writer: writer, User: user}
-			e.Handler(e.Pool, qClient)
+			go e.Handler(e.Pool, qClient)
 		}
 	}
 }
