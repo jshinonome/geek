@@ -22,6 +22,8 @@ import (
 	"math"
 	"reflect"
 	"time"
+
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 const (
@@ -73,20 +75,39 @@ var validType = map[byte]bool{
 	kErr: true,
 }
 
+var (
+	rb = reflect.TypeOf(false)
+	rj = reflect.TypeOf(int64(0))
+	rf = reflect.TypeOf(float64(0))
+	rc = reflect.TypeOf(byte(0))
+	rs = reflect.TypeOf("")
+	rt = reflect.TypeOf(time.Time{})
+	rp = reflect.TypeOf(timestamppb.Timestamp{})
+	RB = reflect.TypeOf([]bool{})
+	RJ = reflect.TypeOf([]int64{})
+	RF = reflect.TypeOf([]float64{})
+	RC = reflect.TypeOf([]byte{})
+	RS = reflect.TypeOf([]string{})
+	RT = reflect.TypeOf([]time.Time{})
+	RP = reflect.TypeOf([]timestamppb.Timestamp{})
+	R0 = reflect.TypeOf([][]byte{})
+)
 var reflectTypeToKType = map[reflect.Type]byte{
-	reflect.TypeOf(false):         kb,
-	reflect.TypeOf(int64(0)):      kj,
-	reflect.TypeOf(float64(0)):    kf,
-	reflect.TypeOf(byte(0)):       kc,
-	reflect.TypeOf(""):            ks,
-	reflect.TypeOf(time.Time{}):   kp,
-	reflect.TypeOf([]bool{}):      KB,
-	reflect.TypeOf([]int64{}):     KJ,
-	reflect.TypeOf([]float64{}):   KF,
-	reflect.TypeOf([]byte{}):      KC,
-	reflect.TypeOf([]string{}):    KS,
-	reflect.TypeOf([]time.Time{}): KP,
-	reflect.TypeOf([][]byte{}):    K0,
+	rb: kb,
+	rj: kj,
+	rf: kf,
+	rc: kc,
+	rs: ks,
+	rt: kp,
+	rp: kp,
+	RB: KB,
+	RJ: KJ,
+	RF: KF,
+	RC: KC,
+	RS: KS,
+	RT: KP,
+	RP: KP,
+	R0: K0,
 }
 
 var (
@@ -103,7 +124,7 @@ var kLen = map[byte]int{
 }
 
 // time in kdb+ starts from 2000.01.01, time in go starts from 1970.01.01
-const timeDiff int64 = 946684800000000000
+const nanoDiff int64 = 946684800000000000
 
 var emptyList [6]byte
 
@@ -274,14 +295,15 @@ func binaryWriteLen(writer *bufio.Writer, length int) {
 
 // string -> symbol, int64 -> long, float64 -> float, time -> timestamp, bool -> boolean, byte -> char
 func writeK(writer *bufio.Writer, v reflect.Value) error {
-	kType, ok := reflectTypeToKType[v.Type()]
+	t := v.Type()
+	kType, ok := reflectTypeToKType[t]
 	if ok {
 		writer.WriteByte(kType)
 		switch kType {
 		case kb, kc, kj, kf:
 			binaryWrite(writer, v.Interface())
 		case kp:
-			binaryWrite(writer, v.Interface().(time.Time).UnixNano()-timeDiff)
+			binaryWrite(writer, v.Interface().(time.Time).UnixNano()-nanoDiff)
 		case ks:
 			binaryWrite(writer, []byte(v.Interface().(string)))
 			writer.WriteByte(0)
@@ -294,7 +316,7 @@ func writeK(writer *bufio.Writer, v reflect.Value) error {
 			binaryWriteLen(writer, v.Len())
 			ns := make([]int64, v.Len())
 			for i := 0; i < v.Len(); i++ {
-				ns[i] = v.Index(i).Interface().(time.Time).UnixNano() - timeDiff
+				ns[i] = v.Index(i).Interface().(time.Time).UnixNano() - nanoDiff
 			}
 			binaryWrite(writer, ns)
 		case KS:
@@ -487,7 +509,15 @@ func readK(reader *bufio.Reader, readLen *int, v reflect.Value) error {
 			var i int64
 			binaryRead(reader, &i)
 			*readLen += kLen[kType]
-			pv.Set(reflect.ValueOf(time.Unix(0, i+timeDiff).UTC()))
+			if t == rt {
+				pv.Set(reflect.ValueOf(time.Unix(0, i+nanoDiff).UTC()))
+			} else {
+				pv.Set(reflect.ValueOf(
+					timestamppb.Timestamp{
+						Seconds: (i + nanoDiff) / 1000_000_000,
+						Nanos:   int32(i % 1000_000_000),
+					}))
+			}
 			return nil
 		case KB, KC, KJ, KF:
 			// skip attr
@@ -523,11 +553,22 @@ func readK(reader *bufio.Reader, readLen *int, v reflect.Value) error {
 			var j = make([]int64, length)
 			binaryRead(reader, j)
 			*readLen += length * kLen[kj]
-			t := make([]time.Time, length)
-			for i, ns := range j {
-				t[i] = time.Unix(0, ns+timeDiff).UTC()
+			if t == rt {
+				times := make([]time.Time, length)
+				for i, ns := range j {
+					times[i] = time.Unix(0, ns+nanoDiff).UTC()
+				}
+				pv.Set(reflect.ValueOf(times))
+			} else {
+				times := make([]timestamppb.Timestamp, length)
+				for i, ns := range j {
+					times[i] = timestamppb.Timestamp{
+						Seconds: (ns + nanoDiff) / 1000_000_000,
+						Nanos:   int32(ns % 1000_000_000),
+					}
+				}
+				pv.Set(reflect.ValueOf(times))
 			}
-			pv.Set(reflect.ValueOf(t))
 			return nil
 		}
 	}

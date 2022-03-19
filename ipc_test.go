@@ -24,6 +24,8 @@ import (
 	"time"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 var readWriteCases = []struct {
@@ -116,11 +118,11 @@ func TestReadIPC(t *testing.T) {
 	q.Sync(&B0, ipcMsg)
 	assert([]bool{}, B0, t)
 
-	ipcMsg = []byte("2022.01.25D")
-	fmt.Printf("Test read - %s\n", ipcMsg)
+	ipcMsg = []byte("2022.01.25D12:34:56.789")
+	fmt.Printf("Test read - go time %s\n", ipcMsg)
 	var p time.Time
 	q.Sync(&p, ipcMsg)
-	if diff := cmp.Diff(time.Date(2022, 1, 25, 0, 0, 0, 0, time.UTC), p); diff != "" {
+	if diff := cmp.Diff(time.Date(2022, 1, 25, 12, 34, 56, 789_000_000, time.UTC), p); diff != "" {
 		t.Error(diff)
 	}
 
@@ -137,6 +139,18 @@ func TestReadIPC(t *testing.T) {
 	zeros := make([]int64, 0)
 	q.Sync(&zeros, ipcMsg)
 	if diff := cmp.Diff(make([]int64, 10000), zeros); diff != "" {
+		t.Error(diff)
+	}
+
+	ipcMsg = []byte("2022.03.19D12:34:56.789")
+	fmt.Printf("Test read - gRPC timestamp %s\n", ipcMsg)
+	expectP := timestamppb.Timestamp{
+		Seconds: 1647693296,
+		Nanos:   789_000_000,
+	}
+	var actualP timestamppb.Timestamp
+	q.Sync(&actualP, ipcMsg)
+	if diff := cmp.Diff(actualP, expectP, cmpopts.IgnoreUnexported(timestamppb.Timestamp{})); diff != "" {
 		t.Error(diff)
 	}
 
