@@ -553,7 +553,7 @@ func readK(reader *bufio.Reader, readLen *int, v reflect.Value) error {
 			var j = make([]int64, length)
 			binaryRead(reader, j)
 			*readLen += length * kLen[kj]
-			if t == rt {
+			if t == RT {
 				times := make([]time.Time, length)
 				for i, ns := range j {
 					times[i] = time.Unix(0, ns+nanoDiff).UTC()
