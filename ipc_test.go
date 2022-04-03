@@ -126,6 +126,18 @@ func TestReadIPC(t *testing.T) {
 		t.Error(diff)
 	}
 
+	ipcMsg = []byte("2#2022.01.25D12:34:56.789")
+	fmt.Printf("Test read - go time %s\n", ipcMsg)
+	var P []time.Time
+	q.Sync(&P, ipcMsg)
+	if diff := cmp.Diff(
+		[]time.Time{
+			time.Date(2022, 1, 25, 12, 34, 56, 789_000_000, time.UTC),
+			time.Date(2022, 1, 25, 12, 34, 56, 789_000_000, time.UTC),
+		}, P); diff != "" {
+		t.Error(diff)
+	}
+
 	ipcMsg = []byte("til 3")
 	fmt.Printf("Test read - %s\n", ipcMsg)
 	int64s := make([]int64, 0)
