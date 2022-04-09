@@ -829,6 +829,9 @@ func Compress(msg []byte) []byte {
 }
 
 func Decompress(cMsg []byte) []byte {
+	if len(cMsg) == 0 {
+		return cMsg
+	}
 	if cMsg[2] == 0 {
 		return cMsg
 	}

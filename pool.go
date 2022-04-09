@@ -179,7 +179,7 @@ func (pool *ConnPool) Handle(qClient *QProcess) (int64, int64, string, error) {
 	// for retrying
 	input := make([]byte, inputSize)
 	// cached input for retrying
-	qClient.reader.Read(input)
+	io.ReadFull(qClient.reader, input)
 	input = Decompress(input)
 	api := PeekAPI(input)
 	err = pool.Validate(api)

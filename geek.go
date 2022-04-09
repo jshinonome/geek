@@ -32,6 +32,7 @@ import (
 var DefaultLogWriter io.Writer = os.Stdout
 
 type QProcess struct {
+	Host      string
 	Port      int
 	User      string
 	Password  string
@@ -85,7 +86,21 @@ func (q *QProcess) Sync(k interface{}, args interface{}) error {
 			}
 			return err
 		}
-		err = readIPC(q.reader, k)
+		// not from a localhost, the message could be compressed
+		if len(q.Host) > 0 {
+			size, err := q.peekMsgLength()
+			if err != nil {
+				q.Close()
+				return err
+			}
+			// for retrying
+			input := make([]byte, size)
+			io.ReadFull(q.reader, input)
+			// decompress the message and create a bufio reader
+			err = readIPC(bufio.NewReader(bytes.NewReader(Decompress(input))), k)
+		} else {
+			err = readIPC(q.reader, k)
+		}
 		if err != nil {
 			// close when connection reset by peer or EOF error
 			if errors.Is(err, syscall.ECONNRESET) || errors.Is(err, io.EOF) {
@@ -161,7 +176,7 @@ func (q *QProcess) auth() error {
 }
 
 func (q *QProcess) Dial() error {
-	socket := fmt.Sprintf(":%d", q.Port)
+	socket := fmt.Sprintf("%s:%d", q.Host, q.Port)
 	var conn net.Conn
 	var err error
 	if q.TLSConfig != nil {
