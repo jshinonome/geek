@@ -570,6 +570,28 @@ func readK(reader *bufio.Reader, readLen *int, v reflect.Value) error {
 				pv.Set(reflect.ValueOf(times))
 			}
 			return nil
+		case K0:
+			// skip attr
+			reader.ReadByte()
+			length := readLength(reader)
+			*readLen += 5
+			var cList = make([][]byte, length)
+			for i := range cList {
+				kType, _ := reader.ReadByte()
+				*readLen += 1
+				if KC != kType {
+					return &GeekErr{fmt.Sprintf("geek:readK nyi target type:[]byte, k type:%d", int8(kType))}
+				}
+				// skip attribute
+				reader.ReadByte()
+				length := readLength(reader)
+				*readLen += 5
+				cList[i] = make([]byte, length)
+				binaryRead(reader, cList[i])
+				*readLen += length
+			}
+			pv.Set(reflect.ValueOf(cList))
+			return nil
 		}
 	}
 

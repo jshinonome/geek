@@ -213,18 +213,13 @@ func TestReadIPC(t *testing.T) {
 		if diff := cmp.Diff(expectD3, actualD3); diff != "" {
 			t.Error(diff)
 		}
+
 		// mixed list
 		ipcMsg = []byte("(1;1b)")
 		fmt.Printf("Test read - %s\n", ipcMsg)
-		actualL0 := struct {
-			A int64
-			B bool
-		}{}
+		actualL0 := jb{}
 		q.Sync(&actualL0, ipcMsg)
-		expectL0 := struct {
-			A int64
-			B bool
-		}{A: 1, B: true}
+		expectL0 := jb{A: 1, B: true}
 		if diff := cmp.Diff(expectL0, actualL0); diff != "" {
 			t.Error(diff)
 		}
@@ -249,11 +244,25 @@ func TestReadIPC(t *testing.T) {
 			t.Error(diff)
 		}
 
+		ipcMsg = []byte("enlist `sym`time`tag!(`7203.T;2022.02.19D;\"oa\")")
+		fmt.Printf("Test read - %s\n", ipcMsg)
+		actualT3 := make([]stC, 0)
+		err := q.Sync(&actualT3, ipcMsg)
+		if err != nil {
+			t.Error(err)
+		}
+		expectT3 := []stC{
+			{"7203.T", time.Date(2022, 2, 19, 0, 0, 0, 0, time.UTC), []byte("oa")},
+		}
+		if diff := cmp.Diff(expectT3, actualT3); diff != "" {
+			t.Error(diff)
+		}
+
 		// test error
 		ipcMsg = []byte("1i")
 		fmt.Printf("Test read - %s\n", ipcMsg)
 		var actualInt64 int64
-		err := q.Sync(&actualInt64, ipcMsg)
+		err = q.Sync(&actualInt64, ipcMsg)
 		if err == nil {
 			t.Error("Should return an error")
 		}
