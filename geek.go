@@ -88,10 +88,10 @@ func (q *QProcess) Sync(k interface{}, args interface{}) error {
 		}
 		// not from a localhost, the message could be compressed
 		if len(q.Host) > 0 {
-			size, err := q.peekMsgLength()
-			if err != nil {
+			size, peekErr := q.peekMsgLength()
+			if peekErr != nil {
 				q.Close()
-				return err
+				return peekErr
 			}
 			// for retrying
 			input := make([]byte, size)

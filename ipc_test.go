@@ -248,6 +248,15 @@ func TestReadIPC(t *testing.T) {
 		if diff := cmp.Diff(expectT2, actualT2); diff != "" {
 			t.Error(diff)
 		}
+
+		// test error
+		ipcMsg = []byte("1i")
+		fmt.Printf("Test read - %s\n", ipcMsg)
+		var actualInt64 int64
+		err := q.Sync(&actualInt64, ipcMsg)
+		if err == nil {
+			t.Error("Should return an error")
+		}
 		q.Close()
 	}
 }
