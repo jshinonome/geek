@@ -1,24 +1,8 @@
-/**
- * Copyright 2022 Jo Shinonome
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
 package geek
 
 import (
 	"bufio"
 	"bytes"
-	"fmt"
 	"reflect"
 	"testing"
 	"time"
@@ -69,7 +53,7 @@ var readWriteCases = []struct {
 
 func TestWriteK(t *testing.T) {
 	for _, test := range readWriteCases {
-		fmt.Println("Test write - " + test.name)
+		t.Log("Test write - " + test.name)
 		buf := new(bytes.Buffer)
 		writer := bufio.NewWriter(buf)
 		v := reflect.ValueOf(test.k)
@@ -101,25 +85,25 @@ func TestReadIPC(t *testing.T) {
 
 		// boolean
 		ipcMsg := []byte("1b")
-		fmt.Printf("Test read - %s\n", ipcMsg)
+		t.Logf("Test read - %s\n", ipcMsg)
 		var b bool
 		q.Sync(&b, ipcMsg)
 		assert(true, b, t)
 		// booleans
 		ipcMsg = []byte("10b")
-		fmt.Printf("Test read - %s\n", ipcMsg)
+		t.Logf("Test read - %s\n", ipcMsg)
 		var B []bool
 		q.Sync(&B, ipcMsg)
 		assert([]bool{true, false}, B, t)
 		// empty booleans
 		ipcMsg = []byte("0#1b")
-		fmt.Printf("Test read - %s\n", ipcMsg)
+		t.Logf("Test read - %s\n", ipcMsg)
 		var B0 []bool
 		q.Sync(&B0, ipcMsg)
 		assert([]bool{}, B0, t)
 
 		ipcMsg = []byte("2022.01.25D12:34:56.789")
-		fmt.Printf("Test read - go time %s\n", ipcMsg)
+		t.Logf("Test read - go time %s\n", ipcMsg)
 		var p time.Time
 		q.Sync(&p, ipcMsg)
 		if diff := cmp.Diff(time.Date(2022, 1, 25, 12, 34, 56, 789_000_000, time.UTC), p); diff != "" {
@@ -127,7 +111,7 @@ func TestReadIPC(t *testing.T) {
 		}
 
 		ipcMsg = []byte("2#2022.01.25D12:34:56.789")
-		fmt.Printf("Test read - go time %s\n", ipcMsg)
+		t.Logf("Test read - go time %s\n", ipcMsg)
 		var P []time.Time
 		q.Sync(&P, ipcMsg)
 		if diff := cmp.Diff(
@@ -139,7 +123,7 @@ func TestReadIPC(t *testing.T) {
 		}
 
 		ipcMsg = []byte("til 3")
-		fmt.Printf("Test read - %s\n", ipcMsg)
+		t.Logf("Test read - %s\n", ipcMsg)
 		int64s := make([]int64, 0)
 		q.Sync(&int64s, ipcMsg)
 		if diff := cmp.Diff([]int64{0, 1, 2}, int64s); diff != "" {
@@ -147,7 +131,7 @@ func TestReadIPC(t *testing.T) {
 		}
 
 		ipcMsg = []byte("(9999#0),1")
-		fmt.Printf("Test read - %s\n", ipcMsg)
+		t.Logf("Test read - %s\n", ipcMsg)
 		longs := make([]int64, 0)
 		q.Sync(&longs, ipcMsg)
 		if diff := cmp.Diff([]int64{9999: 1}, longs); diff != "" {
@@ -155,7 +139,7 @@ func TestReadIPC(t *testing.T) {
 		}
 
 		ipcMsg = []byte("2022.03.19D12:34:56.789")
-		fmt.Printf("Test read - gRPC timestamp %s\n", ipcMsg)
+		t.Logf("Test read - gRPC timestamp %s\n", ipcMsg)
 		expectP := timestamppb.Timestamp{
 			Seconds: 1647693296,
 			Nanos:   789_000_000,
@@ -167,7 +151,7 @@ func TestReadIPC(t *testing.T) {
 		}
 
 		ipcMsg = []byte("1 2! 1 2")
-		fmt.Printf("Test read - %s\n", ipcMsg)
+		t.Logf("Test read - %s\n", ipcMsg)
 		dictInt64 := make(map[int64]int64)
 		q.Sync(&dictInt64, ipcMsg)
 		expectDictInt64 := map[int64]int64{
@@ -179,7 +163,7 @@ func TestReadIPC(t *testing.T) {
 		}
 
 		ipcMsg = []byte("`a`b!1 2")
-		fmt.Printf("Test read - %s\n", ipcMsg)
+		t.Logf("Test read - %s\n", ipcMsg)
 		actualD1 := make(map[string]int64)
 		q.Sync(&actualD1, ipcMsg)
 		expectD1 := map[string]int64{
@@ -191,7 +175,7 @@ func TestReadIPC(t *testing.T) {
 		}
 
 		ipcMsg = []byte("`a`b!1 2")
-		fmt.Printf("Test read - %s\n", ipcMsg)
+		t.Logf("Test read - %s\n", ipcMsg)
 		actualD2 := struct {
 			A int64 `k:"a"`
 			B int64 `k:"b"`
@@ -206,7 +190,7 @@ func TestReadIPC(t *testing.T) {
 		}
 
 		ipcMsg = []byte("`a`b!(1;1b)")
-		fmt.Printf("Test read - %s\n", ipcMsg)
+		t.Logf("Test read - %s\n", ipcMsg)
 		actualD3 := jb{}
 		q.Sync(&actualD3, ipcMsg)
 		expectD3 := jb{A: 1, B: true}
@@ -216,7 +200,7 @@ func TestReadIPC(t *testing.T) {
 
 		// mixed list
 		ipcMsg = []byte("(1;1b)")
-		fmt.Printf("Test read - %s\n", ipcMsg)
+		t.Logf("Test read - %s\n", ipcMsg)
 		actualL0 := jb{}
 		q.Sync(&actualL0, ipcMsg)
 		expectL0 := jb{A: 1, B: true}
@@ -225,7 +209,7 @@ func TestReadIPC(t *testing.T) {
 		}
 		// table
 		ipcMsg = []byte("enlist `a`b!(1;1b)")
-		fmt.Printf("Test read - %s\n", ipcMsg)
+		t.Logf("Test read - %s\n", ipcMsg)
 		actualT1 := make([]jb, 0)
 		q.Sync(&actualT1, ipcMsg)
 		expectT1 := []jb{
@@ -236,7 +220,7 @@ func TestReadIPC(t *testing.T) {
 		}
 		// empty table
 		ipcMsg = []byte("0#enlist `a`b!(1;1b)")
-		fmt.Printf("Test read - %s\n", ipcMsg)
+		t.Logf("Test read - %s\n", ipcMsg)
 		actualT2 := make([]jb, 0)
 		q.Sync(&actualT2, ipcMsg)
 		expectT2 := []jb{}
@@ -245,7 +229,7 @@ func TestReadIPC(t *testing.T) {
 		}
 
 		ipcMsg = []byte("enlist `sym`time`tag!(`7203.T;2022.02.19D;\"oa\")")
-		fmt.Printf("Test read - %s\n", ipcMsg)
+		t.Logf("Test read - %s\n", ipcMsg)
 		actualT3 := make([]stC, 0)
 		err := q.Sync(&actualT3, ipcMsg)
 		if err != nil {
@@ -260,7 +244,7 @@ func TestReadIPC(t *testing.T) {
 
 		// test error
 		ipcMsg = []byte("1i")
-		fmt.Printf("Test read - %s\n", ipcMsg)
+		t.Logf("Test read - %s\n", ipcMsg)
 		var actualInt64 int64
 		err = q.Sync(&actualInt64, ipcMsg)
 		if err == nil {
@@ -296,7 +280,7 @@ func TestDiscardUnreadBytes(t *testing.T) {
 	q.Dial()
 	defer q.Close()
 	for _, test := range discardTests {
-		fmt.Printf("Test  - %s\n", test.ipcMsg)
+		t.Logf("Test  - %s\n", test.ipcMsg)
 		var k byte
 		err := q.Sync(&k, test.ipcMsg)
 		if err == nil {
